@@ -1,67 +1,68 @@
-const express = require('express');
-const axios = require('axios');
-const fs = require('fs');
-const FormData = require('form-data');
+const express = require("express");
+const axios = require("axios");
+const FormData = require("form-data");
+const fs = require("fs");
 
 const app = express();
-const port = 3000; // Your desired port number
+const port = 3000; // Change this to your desired port
 
 app.use(express.json());
 
-app.post('/processJSON', async (req, res) => {
+app.post("/generate-pdf/:id", async (req, res) => {
   try {
-    const inputData = req.body; // JSON input data
-    const {fileName} = inputData;
-    const downloaded_file = `${fileName}.pdf`
-    const URL1 = 'https://rest-au.apitemplate.io/v2/create-pdf?template_id=d6777b230bf41fe2&export_type=file'; // Predefined URL to retrieve the PDF file
-    const URL2 = 'https://bpj.rnd.infozenit.com/files'; // Predefined URL to upload the PDF file
+    const { id } = req.params;
+    const jsonData = req.body;
 
-    const customHeadersURL1 = {
-        headers: {
-          'X-API-KEY': 'e780OTc5Njo2ODM2Om1RZ3hJNFNORXFVN3BlQTQ' 
-        }
-      };
-
-      const customHeadersURL2 = {
-        headers: {
-          'Authorization': 'Bearer F-JFCmJDCoa68dClgRU2ZdKvdLrL-CWW' 
-        }
-      };
-
-    // Sending POST request to URL1 with JSON input data
-    const response = await axios.post(URL1, inputData, {
-        responseType: 'arraybuffer',
-        ...customHeadersURL1
-      });
-    if (response.status === 200) {
-      // Save the returned PDF file locally
-      fs.writeFileSync(downloaded_file, response.data);
-
-      // Re-upload the PDF file to URL2
-      const fileContent = fs.readFileSync(downloaded_file);
-      const formData = new FormData();
-      formData.append('file', fileContent, { filename: downloaded_file });
-
-      const uploadResponse = await axios.post(URL2, formData, {
-        headers: {
-          'Content-Type': `multipart/form-data; boundary=${formData._boundary}`,
-          'Authorization': 'Bearer F-JFCmJDCoa68dClgRU2ZdKvdLrL-CWW' 
-
-        }
-      });
-
-      if (uploadResponse.status === 200) {
-        // Delete the file after successful upload to URL2
-        fs.unlinkSync(downloaded_file);
-        res.status(200).send('File downloaded, uploaded, and deleted successfully');
-      } else {
-        res.status(uploadResponse.status).send(`File upload to URL2 failed with status code: ${uploadResponse.status}`);
+    // Send a POST request to docugen-jsreport to generate PDF
+    const pdfResponse = await axios.post(
+      "https://docugen-jsreport.qlskns.easypanel.host/api/report",
+      jsonData,
+      {
+        responseType: "arraybuffer", // Set responseType to 'arraybuffer' to get binary data
       }
-    } else {
-      res.status(response.status).send(`POST request to URL1 failed with status code: ${response.status}`);
-    }
+    );
+
+    //handle upload
+    const uploadFormData = new FormData();
+    uploadFormData.append("file", pdfResponse.data, `dof_${id}.pdf`); // 'filename.ext' is the desired filename
+
+    const uploadUrl = "https://dms.rnd.infozenit.com/files";
+    // Make the Axios POST request
+    const pdfUloploadresponse = await axios.post(uploadUrl, uploadFormData, {
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${uploadFormData._boundary}`,
+        Authorization: "Bearer jixTcnuKiXRrMFGYxeAU1yrxDnJFrHd5",
+      },
+    });
+
+    const dofUpdateUrl = `https://dms.rnd.infozenit.com/items/Instruction_Form/${id}`;
+    const dofPayload = { dof: pdfUloploadresponse.data.data.id };
+
+    // Make the Axios PATCH request for updating the record with dof information
+    const pdfUpdateResponse = await axios
+      .patch(dofUpdateUrl, dofPayload, {
+        headers: {
+          Authorization: "Bearer jixTcnuKiXRrMFGYxeAU1yrxDnJFrHd5",
+          "Content-Type": "application/json", // Set the content type to JSON
+        },
+      })
+      .then((response) => {
+        console.log("Patch successful:", response.data);
+      })
+      .catch((error) => {
+        console.error("Error during patch:", error);
+      });
+
+    console.log(pdfUpdateResponse);
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "PDF generated and uploaded successfully.",
+      });
   } catch (error) {
-    res.status(500).send(`Error: ${error.message}`);
+    console.error(error);
+    res.status(500).json({ success: false, message: "Internal server error." });
   }
 });
 
